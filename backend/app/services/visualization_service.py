@@ -28,52 +28,72 @@ class VisualizationService:
     
     @classmethod
     def create_shap_waterfall_diagram(cls, shap_explainer_data) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Create a SHAP waterfall plot showing feature contributions to prediction
-        Saves to disk and returns (file_path, base64_string) or (None, None) on failure
-        """
         try:
             if shap_explainer_data is None:
                 print("SHAP data is None")
                 return None, None
-            
+
             cls.ensure_uploads_dir()
-            print(f"Uploads directory: {cls.UPLOADS_DIR}")
 
             if hasattr(shap_explainer_data, 'data') and hasattr(shap_explainer_data, 'toarray'):
                 shap_explainer_data = shap_explainer_data.toarray().flatten()
-            
-            # Create figure with waterfall plot
-            plt.figure(figsize=(12, 8))
+
+            # Compute final prediction value before plotting
+            final_value = float(shap_explainer_data.base_values + shap_explainer_data.values.sum())
+            base_value = float(shap_explainer_data.base_values)
+
+            fig, ax = plt.subplots(figsize=(12, 8))
+
             shap.plots.waterfall(shap_explainer_data, show=False)
-            
-            # Generate filename with timestamp
+
+            # --- Fix 1: Remove the auto-generated overlapping output label ---
+            # SHAP places a text at the top of the plot that clips on the divider line
+            for txt in fig.texts:
+                txt.set_visible(False)
+
+            # Also hide any axes texts that SHAP added for the final value
+            for txt in ax.texts:
+                txt_content = txt.get_text()
+                # SHAP writes the output value as a float string at top
+                try:
+                    float(txt_content.replace('=', '').strip())
+                    txt.set_visible(False)
+                except ValueError:
+                    pass
+
+            # --- Fix 2: Add a clean, properly spaced title with both values ---
+            fig.suptitle(
+                f"Predicted CO₂: {final_value:.2f} g/km    |    Base value (E[f(X)]): {base_value:.2f}",
+                fontsize=12,
+                fontweight='normal',
+                y=1.01,          # push above the plot area so it never overlaps
+                ha='center',
+                color='#333333'
+            )
+
+            # --- Fix 3: Add padding so the title isn't clipped on savefig ---
+            plt.tight_layout()
+            plt.subplots_adjust(top=0.93)
+
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"shap_waterfall_{timestamp}.png"
             file_path = os.path.join(cls.UPLOADS_DIR, filename)
-            
-            print(f"Saving SHAP diagram to: {file_path}")
-            
-            # Save to disk with high DPI
-            plt.savefig(file_path, bbox_inches="tight", dpi=300)
-            plt.close()
-            
-            # Verify file exists
-            if os.path.exists(file_path):
-                print(f"✓ SHAP diagram saved successfully: {file_path}")
-            else:
+
+            # bbox_inches='tight' + pad_inches gives the title room to breathe
+            plt.savefig(file_path, bbox_inches="tight", pad_inches=0.3, dpi=150)
+            plt.close(fig)
+
+            if not os.path.exists(file_path):
                 print(f"✗ Failed to save SHAP diagram at: {file_path}")
                 return None, None
-            
-            # Also create base64 for embedding in response
+
+            print(f"✓ SHAP diagram saved: {file_path}")
+
             with open(file_path, 'rb') as f:
-                image_bytes = f.read()
-            base64_string = base64.b64encode(image_bytes).decode('utf-8')
-            
-            print(f"Base64 string created, length: {len(base64_string)}")
-            
+                base64_string = base64.b64encode(f.read()).decode('utf-8')
+
             return file_path, base64_string
-            
+
         except Exception as e:
             print(f"Error creating SHAP waterfall diagram: {e}")
             import traceback
