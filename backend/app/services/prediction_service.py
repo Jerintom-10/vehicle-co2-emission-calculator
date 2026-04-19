@@ -52,18 +52,23 @@ class PredictionService:
         return prediction_data
     
     @staticmethod
-    async def get_user_predictions(user_id: str, limit: int = 50) -> List[Dict]:
+    async def get_user_predictions(user_id: str, limit: Optional[int] = 50) -> List[Dict]:
         """Get all predictions for a user"""
         predictions_col = await get_predictions_collection()
         user_oid = ObjectId(user_id) if not isinstance(user_id, ObjectId) else user_id
-        
-        cursor = predictions_col.find({"user_id": user_oid}).sort("created_at", -1).limit(limit)
+
+        cursor = predictions_col.find({"user_id": user_oid}).sort("created_at", -1)
+    
+        if limit is not None:
+            cursor = cursor.limit(limit)
+    
+        # to_list also needs None or int — both are valid here
         predictions = await cursor.to_list(length=limit)
-        
+
         for pred in predictions:
             pred["_id"] = str(pred["_id"])
             pred["user_id"] = str(pred["user_id"])
-        
+
         return predictions
     
     @staticmethod
